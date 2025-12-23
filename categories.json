@@ -1,0 +1,9 @@
+{
+  "Income/Credit": ["SALARY", "PAYROLL", "DEPOSIT", "INTEREST"],
+  "Groceries": ["TARGET", "WALMART", "GROCERY", "SAFEWAY", "TRADER JOES"],
+  "Investment/Transfer": ["GROWW", "TECH PVT LTD", "LIMITED", "TRANSFER", "PNB GILTS"],
+  "Personal Transfer": ["PRITIKA", "PREETI", "RAM PAUL", "MAHAJAN"],
+  "Bills & Rent": ["RENT", "UTILITY", "INTERNET", "PHONE BILL"],
+  "Coffee/Food": ["STARBUCKS", "CAFE", "PIZZA", "RESTAURANT", "MCDONALDS"],
+  "Miscellaneous": ["MISC"]
+}

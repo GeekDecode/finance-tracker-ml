@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ page_title }}</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .chart-container { width: 45%; float: left; margin: 20px; }
+        h1 { color: #333; clear: both; }
+    </style>
+</head>
+<body>
+    <h1>My Financial Dashboard</h1>
+    <div style="margin-bottom: 30px; border: 1px solid #ddd; padding: 20px;">
+        <h2>Upload New Statement</h2>
+        <form method="POST" enctype="multipart/form-data" action="{{ url_for('upload_file') }}">
+            <input type="file" name="file" required>
+            <input type="submit" value="Upload & Analyze">
+        </form>
+        <small>Upload a new CSV file to overwrite the current analysis.</small>
+    </div>
+
+    <div class="chart-container">
+        <h2>Category Breakdown</h2>
+        <canvas id="pieChart"></canvas>
+    </div>
+
+    <div class="chart-container">
+        <h2>Monthly Net Inflow</h2>
+        <canvas id="lineChart"></canvas>
+    </div>
+    <div style="clear: both; margin-top: 40px;">
+        <h2>🚨 Detected Anomalies (Machine Learning Insight)</h2>
+        {% if anomalies %}
+        <table>
+            <tr>
+                <th>Date</th>
+                <th>Transaction Name</th>
+                <th>Amount</th>
+                <th>Category</th>
+            </tr>
+            {% for row in anomalies %}
+            <tr style="background-color: #fcebeb;"> <td>{{ row.Date }}</td>
+                <td>{{ row['Transaction Name'] }}</td>
+                <td>${{ "{:,.2f}".format(row.Amount) }}</td>
+                <td>{{ row.Category }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% else %}
+        <p>🎉 No anomalies detected in the current dataset! All good.</p>
+        {% endif %}
+    </div>
+
+    <script>
+        // Data passed from Flask (Python dictionaries converted to JSON)
+        const breakdownData = {{ breakdown | safe }};
+        const monthlyData = {{ monthly | safe}};
+
+        new Chart(document.getElementById('pieChart'), {
+            type: 'pie',
+            data: {
+                labels: breakdownData.labels,
+                datasets: [{
+                    label: 'Total Amount',
+                    data: breakdownData.data,
+                    backgroundColor: [
+                        '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40' // Colors
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'top' },
+                    title: { display: false }
+                }
+            }
+        });
+
+        new Chart(document.getElementById('lineChart'), {
+            type: 'line',
+            data: {
+                labels: monthlyData.labels,
+                datasets: [{
+                    label: 'Net Inflow (Income)',
+                    data: monthlyData.data,
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: { beginAtZero: false }
+                }
+            }
+        });
+    </script>
+</body>
+</html>

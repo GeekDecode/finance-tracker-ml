@@ -1,0 +1,181 @@
+from flask import Flask, render_template, request, redirect, url_for
+import sqlite3
+import pandas as pd
+import json
+import os
+import numpy as np # For Anomaly Detection
+from sklearn.ensemble import IsolationForest # For Anomaly Detection
+from werkzeug.utils import secure_filename
+
+app = Flask(__name__)
+
+DATABASE_NAME = 'finance_tracker.db'
+DB_FILE = DATABASE_NAME
+TABLE_NAME = 'transactions_data'
+
+UPLOAD_FOLDER = 'temp_uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
+
+def process_file(uploaded_csv_path):
+    """
+    Runs the full ETL, Categorization, and ML pipeline on the provided CSV file.
+    Saves the processed data back into the SQLite database.
+    """
+    
+    # Define absolute paths for database and category map
+    PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+    database_path = os.path.join(PROJECT_ROOT, DB_FILE)
+    json_file_path = os.path.join(PROJECT_ROOT, 'categories.json')
+
+    try:
+        with open(json_file_path, 'r') as f:
+            category_map = json.load(f)
+
+        df = pd.read_csv(uploaded_csv_path)
+
+        df['Amount'] = df['Amount'].astype(str).str.replace(r'[^\d\.\-]', '', regex=True)
+        df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce')
+        df['Date'] = pd.to_datetime(df['Date'], infer_datetime_format=True, errors='coerce')
+        df.dropna(subset=['Amount', 'Date'], inplace=True)
+        
+        def assign_category(description):
+            if pd.isna(description):
+                return 'Missing'
+            desc = str(description).upper()
+            for category, keywords in category_map.items():
+                for keyword in keywords:
+                    if keyword in desc:
+                        return category
+            return 'Miscellaneous'
+        
+        df['Category'] = df['Transaction Name'].apply(assign_category)
+
+        X = df[['Amount']].abs().values
+        iso_forest = IsolationForest(contamination=0.01, random_state=42)
+        iso_forest.fit(X)
+        df['Anomaly'] = np.where(iso_forest.predict(X) == -1, 'Yes', 'No')
+
+        conn = sqlite3.connect(database_path)
+        df.to_sql(TABLE_NAME, conn, if_exists='replace', index=False)
+        conn.close()
+        
+        return True # Success
+    
+    except Exception as e:
+        print(f"File Processing Error: {e}")
+        return False # Failure
+
+
+def get_category_breakdown():
+    PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+    database_path = os.path.join(PROJECT_ROOT, DB_FILE)
+    conn = sqlite3.connect(database_path)
+    breakdown_query = """
+    SELECT 
+        Category, 
+        SUM(Amount) AS Total_Amount
+    FROM transactions_data
+    GROUP BY Category
+    HAVING ABS(SUM(Amount)) > 100
+    ORDER BY Total_Amount DESC 
+    """
+    df_breakdown = pd.read_sql(breakdown_query, conn)
+    conn.close()
+    
+    return {
+        'labels': df_breakdown['Category'].tolist(),
+        'data': df_breakdown['Total_Amount'].abs().tolist()
+    }
+
+
+def get_monthly_trends():
+    PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+    database_path = os.path.join(PROJECT_ROOT, DB_FILE)
+    conn = sqlite3.connect(database_path)
+    monthly_query = """
+    SELECT
+        strftime('%Y-%m', Date) AS Year_Month,
+        SUM(Amount) AS Net_Flow
+    FROM transactions_data
+    GROUP BY Year_Month
+    ORDER BY Year_Month;
+    """
+    df_monthly = pd.read_sql(monthly_query, conn)
+    conn.close()
+    
+    return {
+        'labels': df_monthly['Year_Month'].tolist(),
+        'data': df_monthly['Net_Flow'].tolist()
+    }
+
+
+def get_anomalies():
+    PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+    database_path = os.path.join(PROJECT_ROOT, DB_FILE)
+    conn = sqlite3.connect(database_path)
+    anomalies_query = f"""
+    SELECT
+        Date,
+        "Transaction Name",
+        Amount,
+        Category
+    FROM transactions_data
+    WHERE Anomaly = 'Yes'
+    ORDER BY Amount DESC;
+    """
+    df_anomalies = pd.read_sql(anomalies_query, conn)
+    conn.close()
+
+    return df_anomalies.to_dict('records')
+
+@app.route('/', methods=['GET'])
+def dashboard():
+    """Renders the main dashboard page with visualizations."""
+    
+    breakdown_chart_data = get_category_breakdown()
+    monthly_chart_data = get_monthly_trends()
+    anomaly_table_data = get_anomalies()
+
+    return render_template(
+        'dashboard.html', 
+        breakdown=json.dumps(breakdown_chart_data),
+        monthly=json.dumps(monthly_chart_data),
+        anomalies=anomaly_table_data,
+        page_title="Financial Dashboard"
+    )
+
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    """Handles the file upload from the HTML form and triggers processing."""
+    
+    if 'file' not in request.files:
+        return redirect(url_for('dashboard'))
+
+    file = request.files['file']
+
+    if file.filename == '' or not file.filename.endswith('.csv'):
+        return redirect(url_for('dashboard'))
+
+    if file:
+        filename = secure_filename(file.filename)
+        save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(save_path) 
+        
+        success = process_file(save_path) 
+        os.remove(save_path) 
+
+        if success:
+            return redirect(url_for('dashboard'))
+        else:
+            return "Error processing file. Please check file format and column names."
+    
+    return redirect(url_for('dashboard'))
+
+
+if __name__ == '__main__':
+    print("Ensure main.py has been run once to initialize the database.")
+    app.run(debug=True)
