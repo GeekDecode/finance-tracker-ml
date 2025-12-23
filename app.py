@@ -74,7 +74,7 @@ def get_category_breakdown():
     try:
         df_breakdown = pd.read_sql(breakdown_query, conn)
         conn.close()
-        return df_breakdown
+        return df_breakdown.to_dict('records')
     except Exception as e:
         conn.close()
         print(f"Database Query Error: {e}")
@@ -119,7 +119,6 @@ def get_anomalies():
 @app.route('/', methods=['GET'])
 def dashboard():
     """Renders the main dashboard page with visualizations."""
-    
     breakdown_chart_data = get_category_breakdown()
     monthly_chart_data = get_monthly_trends()
     anomaly_table_data = get_anomalies()
