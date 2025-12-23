@@ -9,9 +9,8 @@ from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
-DATABASE_NAME = 'finance_tracker.db'
-DB_FILE = DATABASE_NAME
-TABLE_NAME = 'transactions_data'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, 'finance_tracker.db')
 
 UPLOAD_FOLDER = 'temp_uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -20,15 +19,7 @@ if not os.path.exists(UPLOAD_FOLDER):
 
 
 def process_file(uploaded_csv_path):
-    """
-    Runs the full ETL, Categorization, and ML pipeline on the provided CSV file.
-    Saves the processed data back into the SQLite database.
-    """
-    
-    # Define absolute paths for database and category map
-    PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-    database_path = os.path.join(PROJECT_ROOT, DB_FILE)
-    json_file_path = os.path.join(PROJECT_ROOT, 'categories.json')
+    json_file_path = os.path.join(BASE_DIR, 'categories.json')
 
     try:
         with open(json_file_path, 'r') as f:
@@ -58,8 +49,8 @@ def process_file(uploaded_csv_path):
         iso_forest.fit(X)
         df['Anomaly'] = np.where(iso_forest.predict(X) == -1, 'Yes', 'No')
 
-        conn = sqlite3.connect(database_path)
-        df.to_sql(TABLE_NAME, conn, if_exists='replace', index=False)
+        conn = sqlite3.connect(DB_PATH)
+        df.to_sql('transactions_data', conn, if_exists='replace', index=False)
         conn.close()
         
         return True # Success
@@ -70,9 +61,7 @@ def process_file(uploaded_csv_path):
 
 
 def get_category_breakdown():
-    PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-    database_path = os.path.join(PROJECT_ROOT, DB_FILE)
-    conn = sqlite3.connect(database_path)
+    conn = sqlite3.connect(DB_PATH)
     breakdown_query = """
     SELECT 
         Category, 
@@ -82,19 +71,17 @@ def get_category_breakdown():
     HAVING ABS(SUM(Amount)) > 100
     ORDER BY Total_Amount DESC 
     """
-    df_breakdown = pd.read_sql(breakdown_query, conn)
-    conn.close()
+    try:
+        df_breakdown = pd.read_sql(breakdown_query, conn)
+        conn.close()
+        return df_breakdown
+    except Exception as e:
+        conn.close()
+        print(f"Database Query Error: {e}")
+        return pd.DataFrame()
     
-    return {
-        'labels': df_breakdown['Category'].tolist(),
-        'data': df_breakdown['Total_Amount'].abs().tolist()
-    }
-
-
 def get_monthly_trends():
-    PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-    database_path = os.path.join(PROJECT_ROOT, DB_FILE)
-    conn = sqlite3.connect(database_path)
+    conn = sqlite3.connect(DB_PATH)
     monthly_query = """
     SELECT
         strftime('%Y-%m', Date) AS Year_Month,
@@ -113,9 +100,7 @@ def get_monthly_trends():
 
 
 def get_anomalies():
-    PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-    database_path = os.path.join(PROJECT_ROOT, DB_FILE)
-    conn = sqlite3.connect(database_path)
+    conn = sqlite3.connect(DB_PATH)
     anomalies_query = f"""
     SELECT
         Date,
