@@ -74,9 +74,12 @@ def get_category_breakdown():
     try:
         df_breakdown = pd.read_sql(breakdown_query, conn)
         conn.close()
-        return df_breakdown.to_dict('records')
+        return {'labels': df_breakdown['Category'].tolist(),
+            'values': df_breakdown['Total_Amount'].abs().tolist()
+            }
     except Exception as e:
-        conn.close()
+        if conn:
+            conn.close()
         print(f"Database Query Error: {e}")
         return pd.DataFrame()
     
